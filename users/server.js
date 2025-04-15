@@ -31,6 +31,5 @@ router.get('/', function *() {
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-app.listen(3003);
-
-console.log('Worker started');
+const port = process.env.PORT || 3003;
+app.listen(port, () => console.log(`Worker started on port ${port}`));

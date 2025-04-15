@@ -1,0 +1,727 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to deploy Posts, Threads, and Users microservices on ECS Fargate with ALB, CI/CD pipeline, and a new VPC.
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Description: GitHub username or organization name
+  GitHubRepo:
+    Type: String
+    Description: GitHub repository name
+  GitHubBranch:
+    Type: String
+    Default: main
+    Description: GitHub branch to monitor
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    Description: GitHub OAuth token for CodePipeline
+  ContainerMemory:
+    Type: Number
+    Default: 512
+    Description: Memory for each container (MB)
+  ContainerCPU:
+    Type: Number
+    Default: 256
+    Description: CPU units for each container (256 = 0.25 vCPU)
+
+Resources:
+  # --- VPC ---
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: my-app-vpc
+
+  # --- Public Subnets ---
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-1
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-2
+
+  # --- Internet Gateway ---
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: my-app-igw
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # --- Route Table ---
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: public-route-table
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # --- ECR Repositories ---
+  PostsECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: posts
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  ThreadsECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: threads
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  UsersECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: users
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  # --- ECS Cluster ---
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: my-app-cluster
+
+  # --- Security Groups ---
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ALB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: alb-sg
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for ECS services
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3001
+          ToPort: 3003
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: ecs-sg
+
+  # --- Application Load Balancer ---
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: my-app-alb
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig:
+            StatusCode: '404'
+            ContentType: text/plain
+            MessageBody: Not Found
+
+  # --- Target Groups ---
+  PostsTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 3001
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: posts-tg
+
+  ThreadsTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 3002
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: threads-tg
+
+  UsersTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 3003
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Tags:
+        - Key: Name
+          Value: users-tg
+
+  # --- ALB Listener Rules ---
+  PostsListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values: ['/posts/*', '/api/posts/*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref PostsTargetGroup
+
+  ThreadsListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 2
+      Conditions:
+        - Field: path-pattern
+          Values: ['/threads/*', '/api/threads/*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ThreadsTargetGroup
+
+  UsersListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 3
+      Conditions:
+        - Field: path-pattern
+          Values: ['/users/*', '/api/users/*']
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref UsersTargetGroup
+
+  # --- Task Definitions ---
+  PostsTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: posts-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref ContainerCPU
+      Memory: !Ref ContainerMemory
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: posts-container
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/posts:latest'
+          PortMappings:
+            - ContainerPort: 3001
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref PostsLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: posts
+          Environment:
+            - Name: PORT
+              Value: '3001'
+
+  ThreadsTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: threads-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref ContainerCPU
+      Memory: !Ref ContainerMemory
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: threads-container
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/threads:latest'
+          PortMappings:
+            - ContainerPort: 3002
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ThreadsLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: threads
+          Environment:
+            - Name: PORT
+              Value: '3002'
+
+  UsersTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: users-task
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref ContainerCPU
+      Memory: !Ref ContainerMemory
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: users-container
+          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/users:latest'
+          PortMappings:
+            - ContainerPort: 3003
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref UsersLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: users
+          Environment:
+            - Name: PORT
+              Value: '3003'
+
+  # --- Log Groups ---
+  PostsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/posts
+      RetentionInDays: 7
+
+  ThreadsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/threads
+      RetentionInDays: 7
+
+  UsersLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/users
+      RetentionInDays: 7
+
+  # --- ECS Services ---
+  PostsService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: posts-service
+      TaskDefinition: !Ref PostsTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName: posts-container
+          ContainerPort: 3001
+          TargetGroupArn: !Ref PostsTargetGroup
+    DependsOn:
+      - PostsListenerRule
+
+  ThreadsService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: threads-service
+      TaskDefinition: !Ref ThreadsTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName: threads-container
+          ContainerPort: 3002
+          TargetGroupArn: !Ref ThreadsTargetGroup
+    DependsOn:
+      - ThreadsListenerRule
+
+  UsersService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: users-service
+      TaskDefinition: !Ref UsersTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          AssignPublicIp: ENABLED
+      LoadBalancers:
+        - ContainerName: users-container
+          ContainerPort: 3003
+          TargetGroupArn: !Ref UsersTargetGroup
+    DependsOn:
+      - UsersListenerRule
+
+  # --- IAM Roles ---
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ECSLogPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: '*'
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelinePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                  - iam:PassRole
+                Resource: '*'
+
+  # --- CodeBuild Projects ---
+  PostsCodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: build-posts
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: REPOSITORY_URI
+            Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/posts'
+          - Name: SERVICE_NAME
+            Value: posts
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: posts/buildspec.yml
+
+  ThreadsCodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: build-threads
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: REPOSITORY_URI
+            Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/threads'
+          - Name: SERVICE_NAME
+            Value: threads
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: threads/buildspec.yml
+
+  UsersCodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: build-users
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        Image: aws/codebuild/standard:5.0
+        ComputeType: BUILD_GENERAL1_SMALL
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: REPOSITORY_URI
+            Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/users'
+          - Name: SERVICE_NAME
+            Value: users
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: users/buildspec.yml
+
+  # --- CodePipeline ---
+  PipelineArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'codepipeline-${AWS::AccountId}-${AWS::Region}'
+
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: '1'
+              OutputArtifacts:
+                - Name: SourceArtifact
+              Configuration:
+                Owner: !Ref GitHubOwner
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubToken
+                PollForSourceChanges: false
+        - Name: Build
+          Actions:
+            - Name: BuildPosts
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: PostsBuildArtifact
+              Configuration:
+                ProjectName: !Ref PostsCodeBuild
+            - Name: BuildThreads
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: ThreadsBuildArtifact
+              Configuration:
+                ProjectName: !Ref ThreadsCodeBuild
+            - Name: BuildUsers
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              InputArtifacts:
+                - Name: SourceArtifact
+              OutputArtifacts:
+                - Name: UsersBuildArtifact
+              Configuration:
+                ProjectName: !Ref UsersCodeBuild
+        - Name: Deploy
+          Actions:
+            - Name: DeployPosts
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: '1'
+              InputArtifacts:
+                - Name: PostsBuildArtifact
+              Configuration:
+                ClusterName: !Ref ECSCluster
+                ServiceName: !Ref PostsService
+                FileName: imagedefinitions.json
+            - Name: DeployThreads
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: '1'
+              InputArtifacts:
+                - Name: ThreadsBuildArtifact
+              Configuration:
+                ClusterName: !Ref ECSCluster
+                ServiceName: !Ref ThreadsService
+                FileName: imagedefinitions.json
+            - Name: DeployUsers
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: '1'
+              InputArtifacts:
+                - Name: UsersBuildArtifact
+              Configuration:
+                ClusterName: !Ref ECSCluster
+                ServiceName: !Ref UsersService
+                FileName: imagedefinitions.json
+
+Outputs:
+  ALBEndpoint:
+    Description: URL of the Application Load Balancer
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+  ECSClusterName:
+    Description: Name of the ECS Cluster
+    Value: !Ref ECSCluster
+  PostsServiceName:
+    Description: Name of the Posts Service
+    Value: !Ref PostsService
+  ThreadsServiceName:
+    Description: Name of the Threads Service
+    Value: !Ref ThreadsService
+  UsersServiceName:
+    Description: Name of the Users Service
+    Value: !Ref UsersService
+  VPCId:
+    Description: ID of the created VPC
+    Value: !Ref VPC
+  SubnetIds:
+    Description: IDs of the created subnets
+    Value: !Join [',', [!Ref PublicSubnet1, !Ref PublicSubnet2]]

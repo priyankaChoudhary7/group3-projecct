@@ -16,7 +16,8 @@ phases:
       - echo Pushing the Docker image...
       - docker push 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest
       - echo Writing image definitions file...
-      - echo '[{"name":"posts-container","imageUri":"241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest"}]' > ../../imagedefinitions.json
+      - echo '[{"name":"posts-container","imageUri":"241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest"}]' > - echo '[{"name":"posts-container","imageUri":"241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest"}]' > imagedefinitions.json
+
 
 artifacts:
   files:

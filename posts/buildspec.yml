@@ -22,5 +22,5 @@ phases:
       - printf '[{"name":"%s-container","imageUri":"%s"}]' $SERVICE_NAME $REPOSITORY_URI:latest > imagedefinitions.json
 artifacts:
   files:
-    - posts/imagedefinitions.json
-
+    - imagedefinitions.json
+  discard-paths: yes

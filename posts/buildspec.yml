@@ -1,24 +1,31 @@
 version: 0.2
 
+env:
+  variables:
+    REPOSITORY_URI: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/posts'
+    SERVICE_NAME: posts
+
 phases:
-  pre_build:
+  install:
+    runtime-versions:
+      docker: 18
     commands:
       - echo Logging in to Amazon ECR...
-      - aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 241533152758.dkr.ecr.ca-central-1.amazonaws.com
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REPOSITORY_URI
 
   build:
     commands:
       - echo Building the Docker image...
-      - docker build --platform linux/amd64 -t 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest .
+      - docker build -t $SERVICE_NAME .
+      - docker tag $SERVICE_NAME:latest $REPOSITORY_URI:latest
 
   post_build:
     commands:
-      - echo Pushing the Docker image...
-      - docker push 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest
-      - echo Writing image definitions file...
-      - echo '[{"name":"posts-container","imageUri":"241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest"}]' > - echo '[{"name":"posts-container","imageUri":"241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest"}]' > imagedefinitions.json
-
+      - echo Pushing the Docker image to Amazon ECR...
+      - docker push $REPOSITORY_URI:latest
 
 artifacts:
-  files:
-    - imagedefinitions.json
+  files: '**/*'
+  discard-paths: yes
+  base-directory: build
+

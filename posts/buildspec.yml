@@ -3,19 +3,19 @@ phases:
   pre_build:
     commands:
       - echo Logging in to Amazon ECR...
-      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $REPOSITORY_URI
+      - aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts
   build:
     commands:
       - echo Building the Docker image...
-      - docker build -t $REPOSITORY_URI:latest .
-      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$CODEBUILD_BUILD_NUMBER
+      - docker build -t 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest .
+      - docker tag 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest
   post_build:
     commands:
       - echo Pushing the Docker image...
-      - docker push $REPOSITORY_URI:latest
-      - docker push $REPOSITORY_URI:$CODEBUILD_BUILD_NUMBER
+      - docker push 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest
+      - docker push 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest
       - echo Writing image definitions file...
-      - printf '[{"name":"%s-container","imageUri":"%s"}]' $SERVICE_NAME $REPOSITORY_URI:latest > imagedefinitions.json
+      - printf '[{"name":"posts-container","imageUri":"241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest"}]' posts-service 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest > imagedefinitions.json
 artifacts:
   files:
     - imagedefinitions.json

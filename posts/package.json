@@ -1,0 +1,16 @@
+{
+  "dependencies": {
+    "koa": "^1.2.5",
+    "koa-router": "^5.4.0"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "name": "posts",
+  "version": "1.0.0",
+  "main": "server.js",
+  "devDependencies": {},
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}

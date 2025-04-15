@@ -2,14 +2,14 @@ version: 0.2
 
 env:
   variables:
-    REPOSITORY_URI: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/posts'
+    REPOSITORY_URI: '241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts'
     SERVICE_NAME: posts
 
 phases:
   install:
     commands:
       - echo Logging in to Amazon ECR...
-      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $REPOSITORY_URI
+      - aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin $REPOSITORY_URI
 
   build:
     commands:

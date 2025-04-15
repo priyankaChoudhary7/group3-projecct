@@ -1,21 +1,22 @@
 version: 0.2
+
 phases:
   pre_build:
     commands:
       - echo Logging in to Amazon ECR...
-      - aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts
+      - aws ecr get-login-password --region ca-central-1 | docker login --username AWS --password-stdin 241533152758.dkr.ecr.ca-central-1.amazonaws.com
   build:
     commands:
       - echo Building the Docker image...
+      - cd group3-projecct/posts
       - docker build -t 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest .
-      - docker tag 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest
   post_build:
     commands:
       - echo Pushing the Docker image...
       - docker push 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest
-      - docker push 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest
       - echo Writing image definitions file...
-      - printf '[{"name":"posts-container","imageUri":"241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest"}]' posts-service 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest > imagedefinitions.json
+      - echo '[{"name":"posts-container","imageUri":"241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest"}]' > imagedefinitions.json
+
 artifacts:
   files:
-    - imagedefinitions.json
+    - group3-projecct/posts/imagedefinitions.json

@@ -15,7 +15,6 @@ phases:
     commands:
       - echo Building the Docker image...
       - docker build -t $SERVICE_NAME -f posts/Dockerfile .
-      - docker tag $SERVICE_NAME:latest $REPOSITORY_URI:latest
 
   post_build:
     commands:
@@ -26,5 +25,4 @@ artifacts:
   files: '**/*'
   discard-paths: yes
   base-directory: .
-
 

@@ -6,7 +6,7 @@ phases:
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $REPOSITORY_URI
   build:
     commands:
-      - echo Changing to users directory...
+      - echo Changing to posts directory...
       - cd posts
       - echo Current directory contents...
       - ls -la
@@ -22,5 +22,5 @@ phases:
       - printf '[{"name":"%s-container","imageUri":"%s"}]' $SERVICE_NAME $REPOSITORY_URI:latest > imagedefinitions.json
 artifacts:
   files:
-    - users/imagedefinitions.json
+    - posts/imagedefinitions.json
 

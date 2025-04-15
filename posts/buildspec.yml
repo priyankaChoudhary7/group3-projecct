@@ -9,7 +9,6 @@ phases:
   build:
     commands:
       - echo Building the Docker image...
-      - cd group3-projecct/posts
       - docker build --platform linux/amd64 -t 241533152758.dkr.ecr.ca-central-1.amazonaws.com/posts:latest .
 
   post_build:
